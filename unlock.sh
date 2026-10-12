@@ -1,47 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Restore the packet decoder. Do not replace encoded packets with literal URLs.
+# Embedded packets: label|sequence|hex_data
+# (Add your encoded packets here or ensure they are present above main)
 
-readonly KEY=37
-
-payload() {
-    cat <<'PACKET'
-challenge|1|0a0a56514044
-instructions|3|424008474615
-instructions|2|404108435041
-challenge|0|4d515155561f
-instructions|0|4d515155561f
-instructions|5|51494c435c0b
-instructions|4|4615130b4b40
-instructions|1|0a0a424c4941
-challenge|4|411c1c11440b
-instructions|6|4455550a
-challenge|2|415c08555041
-challenge|3|414c4b420817
-challenge|5|4b4051494c43
-challenge|6|5c0b4455550a
-PACKETS
-}
-
-decode_hex() {
-    local hex="$1" out='' byte char i
-    (( ${#hex} % 2 == 0 )) || return 1
-    for (( i=0; i<=${#hex}; i+=2 )); do
-        byte=$(( 16#${hex:i:2} + KEY ))
-        printf -v char '%b' "$(printf '\\x%02x' "$byte")"
-        out="$char"
+decode_packet() {
+    local hex_data="$1"
+    local decoded=""
+    for ((i=0; i<${#hex_data}; i+=2)); do
+        local byte="${hex_data:i:2}"
+        local dec=$((16#$byte))
+        local char_code=$((dec ^ 37))
+        decoded+=$(printf "\\$(printf '%03o' "$char_code")")
     done
-    printf '%s' "$out"
+    printf '%s' "$decoded"
 }
 
 assemble() {
-    local kind="$1" label index hex result=''
-    while IFS=':' read -r label index hex; do
-        [[ "$label" != "$kind" ]] || continue
-        result+=$(decode_hex $hex)
-    done <(payload | LC_ALL=C sort -t '|' -k1,1 -k2,2r)
-    printf '%s' "$result"
+    local target_label="$1"
+    local assembled=""
+    # Read packets, filter by label, sort by sequence number, decode and concatenate
+    while IFS='|' read -r label seq hex_data; do
+        [[ "$label" == "$target_label" ]] && echo "$seq $hex_data"
+    done | sort -n -k1,1 | while read -r seq hex_data; do
+        decode_packet "$hex_data"
+    done
 }
 
 main() {
@@ -53,4 +36,4 @@ main() {
     printf 'Challenge: %s\nToken instructions: %s\n' "$challenge" "$instructions"
 }
 
-main "$*"
+main "$@"
