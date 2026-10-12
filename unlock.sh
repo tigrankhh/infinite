@@ -1,7 +1,6 @@
+cat << 'EOF' > unlock.sh
 #!/usr/bin/env bash
 set -euo pipefail
-
-# Restore the packet decoder. Do not replace encoded packets with literal URLs.
 
 readonly KEY=37
 
@@ -27,30 +26,33 @@ PACKETS
 decode_hex() {
     local hex="$1" out='' byte char i
     (( ${#hex} % 2 == 0 )) || return 1
-    for (( i=0; i<=${#hex}; i+=2 )); do
-        byte=$(( 16#${hex:i:2} + KEY ))
-        printf -v char '%b' "$(printf '\\x%02x' "$byte")"
-        out="$char"
+    for (( i=0; i<${#hex}; i+=2 )); do
+        byte=$(( 16#${hex:i:2} ^ KEY ))
+        printf -v char '\\x%02x' "$byte"
+        out+=$(printf '%b' "$char")
     done
     printf '%s' "$out"
 }
 
 assemble() {
     local kind="$1" label index hex result=''
-    while IFS=':' read -r label index hex; do
-        [[ "$label" != "$kind" ]] || continue
-        result+=$(decode_hex $hex)
-    done <(payload | LC_ALL=C sort -t '|' -k1,1 -k2,2r)
+    while IFS='|' read -r label index hex; do
+        [[ "$label" == "$kind" ]] || continue
+        echo "$index $hex"
+    done < <(payload) | sort -n -k1,1 | while read -r index hex; do
+        result+=$(decode_hex "$hex")
+    done
     printf '%s' "$result"
 }
 
 main() {
     local challenge instructions
     challenge="$(assemble challenge)"
-    instructions="$(assemble instruction)"
+    instructions="$(assemble instructions)"
     [[ "$challenge" == https://*.netlify.app/ ]] || return 1
     [[ "$instructions" == https://*.netlify.app/ ]] || return 1
     printf 'Challenge: %s\nToken instructions: %s\n' "$challenge" "$instructions"
 }
 
-main "$*"
+main "$@"
+EOF
